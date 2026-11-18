@@ -1,0 +1,14 @@
+# local environments and data (never commit: may contain credentials, sessions, API keys)
+.venv/
+.devdata/
+.claude/
+# large / generated
+geoip/
+dist/
+database/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.db
+*.db-wal
+*.db-shm

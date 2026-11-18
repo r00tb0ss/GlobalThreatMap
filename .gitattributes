@@ -1,0 +1,8 @@
+# Linux scripts and configs must keep LF line endings, even when checked out on Windows
+* text=auto eol=lf
+# byte-exact: vendored files are verified against published SHA-256/SRI hashes; LICENSE is kept as provided
+frontend/vendor/** -text
+LICENSE -text
+*.png binary
+*.mmdb binary
+*.gz binary

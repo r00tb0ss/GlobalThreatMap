@@ -1,0 +1,9 @@
+[Unit]
+Description=Global Threat Intelligence Platform - scheduled backup
+After=global-threat-intel.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/gti backup --auto
+Nice=10
+IOSchedulingClass=idle

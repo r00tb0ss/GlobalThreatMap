@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily backup of the Global Threat Intelligence Platform
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

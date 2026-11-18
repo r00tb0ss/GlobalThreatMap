@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Global Threat Intel</title>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="auth" class="auth hidden">
+  <form id="auth-form" class="card" autocomplete="on">
+    <h1>Global Threat Intel</h1>
+    <p id="auth-intro" class="muted"></p>
+    <label id="token-row" class="hidden">Setup token
+      <input id="f-token" autocomplete="off" spellcheck="false">
+      <small class="muted">Printed by the installer. Also stored in <code>/var/lib/global-threat-intel/setup_token</code>.</small>
+    </label>
+    <label>Username <input id="f-user" autocomplete="username" required></label>
+    <label>Password <input id="f-pass" type="password" autocomplete="current-password" required></label>
+    <label id="pass2-row" class="hidden">Confirm password <input id="f-pass2" type="password" autocomplete="new-password"></label>
+    <p id="auth-err" class="err" role="alert"></p>
+    <button id="auth-btn" type="submit">Sign in</button>
+  </form>
+</div>
+
+<div id="main" class="hidden">
+  <header class="top">
+    <strong class="brand">Global Threat Intel</strong>
+    <nav id="tabs" role="tablist">
+      <button data-view="map" class="active">Map</button>
+      <button data-view="feed">Live feed</button>
+      <button data-view="analytics">Analytics</button>
+      <button data-view="sources">Sources</button>
+      <button data-view="settings">Settings</button>
+    </nav>
+    <button id="logout" class="ghost">Sign out</button>
+  </header>
+  <div id="banner" class="banner hidden" role="status"></div>
+
+  <section id="view-map" class="view">
+    <div class="toolbar">
+      <input id="m-q" placeholder="Search IP" spellcheck="false">
+      <select id="m-source"><option value="">All sources</option></select>
+      <select id="m-cat"><option value="">All categories</option>
+        <option value="botnet_c2">Botnet C2</option>
+        <option value="reported_attacker">Reported attacker</option>
+        <option value="compromised_host">Compromised host</option>
+        <option value="ssh_bruteforce">SSH brute force (observed)</option>
+        <option value="blocked_connection">Firewall block (observed)</option></select>
+      <label class="inline">Min score <input id="m-min" type="number" min="0" max="100" value="0"></label>
+      <button id="m-full" class="ghost" title="Fullscreen">Fullscreen</button>
+      <span id="m-count" class="muted"></span>
+    </div>
+    <div id="map-wrap"><div id="map"></div>
+      <aside id="detail" class="detail hidden" aria-live="polite">
+        <button id="detail-close" class="ghost close" aria-label="Close">×</button>
+        <div id="detail-body"></div>
+      </aside>
+    </div>
+  </section>
+
+  <section id="view-feed" class="view hidden">
+    <div class="toolbar">
+      <button id="f-pause">Pause</button>
+      <select id="f-kind" aria-label="What to show">
+        <option value="ips">IP listings (investigate an IP)</option>
+        <option value="attacks">Attacks: exploits, botnets, scanners</option>
+      </select>
+      <select id="f-source" aria-label="Source"><option value="">All sources</option></select>
+      <span id="f-status" class="muted"></span>
+    </div>
+    <p id="f-note" class="muted small"></p>
+    <p id="f-next" class="muted small"></p>
+    <table class="tbl feed-tbl"><thead id="feed-head"></thead>
+      <tbody id="feed-body"></tbody></table>
+  </section>
+
+  <section id="view-analytics" class="view hidden"><div id="analytics"></div></section>
+  <section id="view-sources" class="view hidden"><div id="sources"></div></section>
+
+  <section id="view-settings" class="view hidden">
+    <form id="settings-form" class="card wide">
+      <h2>Dashboard and data</h2>
+      <label>Retention (days) <input id="s-ret" type="number" required></label>
+      <label>Max map points <input id="s-pts" type="number" required></label>
+      <label>Default minimum score <input id="s-min" type="number" required></label>
+      <h3>This host's location (arc destination)</h3>
+      <p class="muted small">Attacks the local sensor observes against this machine are drawn as arcs ending here. Leave empty to show pulses only.</p>
+      <div class="row2">
+        <label>Latitude <input id="s-lat" type="number" step="any" min="-90" max="90"></label>
+        <label>Longitude <input id="s-lon" type="number" step="any" min="-180" max="180"></label>
+      </div>
+      <label>Label <input id="s-label" maxlength="40" placeholder="Home lab"></label>
+      <p><button type="button" id="s-locate" class="ghost">Suggest from my public IP</button>
+         <button type="button" id="s-clear" class="ghost">Clear location</button></p>
+      <p id="s-msg" role="status"></p>
+      <button type="submit">Save</button>
+      <p id="s-ingest" class="muted small"></p>
+    </form>
+    <form id="pw-form" class="card wide">
+      <h2>Change password</h2>
+      <label>Current password <input id="p-cur" type="password" autocomplete="current-password" required></label>
+      <label>New password (12+ characters) <input id="p-new" type="password" autocomplete="new-password" required></label>
+      <p id="p-msg" role="status"></p>
+      <button type="submit">Change password</button>
+    </form>
+  </section>
+</div>
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

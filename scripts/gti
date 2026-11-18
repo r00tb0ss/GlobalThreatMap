@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# gti - management command for the Global Threat Intelligence Platform (installed as /usr/local/sbin/gti)
+set -euo pipefail
+APP=/opt/global-threat-intel/current
+[[ -d "$APP" ]] || { echo "Global Threat Intelligence Platform is not installed." >&2; exit 1; }
+cmd="${1:-help}"; shift || true
+need_root() { [[ $EUID -eq 0 ]] || { echo "Run as root: sudo gti $cmd" >&2; exit 1; }; }
+case "$cmd" in
+  status)        systemctl --no-pager status global-threat-intel.service || true
+                 systemctl --no-pager list-timers 'global-threat-intel-*' || true ;;
+  health)        need_root; exec "$APP/health-check.sh" "$@" ;;
+  backup)        need_root; exec "$APP/backup.sh" "$@" ;;
+  restore)       need_root; exec "$APP/restore.sh" "$@" ;;
+  update)        need_root; exec "$APP/update.sh" "$@" ;;
+  uninstall)     need_root; tmp="$(mktemp -d)"; cp -a "$APP/uninstall.sh" "$APP/scripts" "$tmp/"; exec "$tmp/uninstall.sh" "$@" ;;
+  update-geoip)  need_root
+                 "$APP/scripts/update-geoip.sh" --python "$APP/venv/bin/python" "$@"
+                 systemctl try-restart global-threat-intel.service ;;
+  setup-token)   need_root
+                 f=/var/lib/global-threat-intel/setup_token
+                 if [[ -f "$f" ]]; then cat "$f"; else echo "No setup token: the administrator account already exists."; fi ;;
+  reset-password) need_root; [[ -n "${1:-}" ]] || { echo "usage: sudo gti reset-password <username>" >&2; exit 2; }
+                 read -r -s -p "New password (12+ characters): " pw; echo
+                 printf '%s\n' "$pw" | runuser -u gti -- env GTI_DATA_DIR=/var/lib/global-threat-intel \
+                   "$APP/venv/bin/python" -I -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from gti.admin import main; main(sys.argv[1:])' \
+                   "$APP/backend" reset-password "$1" ;;
+  logs)          exec journalctl -u global-threat-intel.service -n "${1:-100}" --no-pager ;;
+  version)       cat "$APP/VERSION" ;;
+  help|-h|--help|*)
+    cat <<'EOF'
+usage: sudo gti <command>
+  status                 service and timer status
+  health [--full]        full health check (exit 1 on problems)
+  backup                 back up database + configuration now
+  restore <file>         restore a backup (current data is backed up first)
+  update <file|--check|--url URL>   update to a new release with automatic rollback
+  update-geoip           refresh the DB-IP GeoIP/ASN databases
+  setup-token            show the one-time token for creating the administrator
+  reset-password <user>  set a new password from the console
+  logs [N]               last N log lines
+  uninstall [--complete] remove the application (data kept unless --complete)
+  version                installed version
+EOF
+    [[ "$cmd" == help || "$cmd" == -h || "$cmd" == --help ]] || exit 2 ;;
+esac

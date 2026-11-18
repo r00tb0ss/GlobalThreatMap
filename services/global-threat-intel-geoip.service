@@ -1,0 +1,10 @@
+[Unit]
+Description=Global Threat Intelligence Platform - refresh DB-IP Lite GeoIP/ASN databases
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/gti update-geoip
+Nice=10
+IOSchedulingClass=idle
