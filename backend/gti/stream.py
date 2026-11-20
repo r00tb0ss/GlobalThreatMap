@@ -16,19 +16,20 @@ from .db import now
 
 log = logging.getLogger("gti.stream")
 FLUSH_S = 10
+MAX_EVENT_BYTES = 256 * 1024   # an SSE event larger than this is dropped (a stream that never sends a blank line)
 IDLE_TIMEOUT = 90          # no bytes (not even keep-alives) for this long -> reconnect
 MAX_BUFFER = 5000          # bounded memory if the database stalls
 
 
 def iter_sse(lines):
     """Parse SSE lines -> (event, data) tuples. Handles multi-line data and comments."""
-    event, data = None, []
+    event, data, size = None, [], 0
     for raw in lines:
         line = raw.rstrip("\r\n")
         if line == "":
             if data:
                 yield event or "message", "\n".join(data)
-            event, data = None, []
+            event, data, size = None, [], 0
         elif line.startswith(":"):
             yield "keepalive", ""      # lets the reader flush/update health on a quiet but live stream
         else:
@@ -37,7 +38,11 @@ def iter_sse(lines):
             if field == "event":
                 event = value
             elif field == "data":
-                data.append(value)
+                size += len(value) + 1
+                if size <= MAX_EVENT_BYTES:
+                    data.append(value)
+                else:
+                    data = []       # oversize event: keep consuming lines but never keep the data
 
 
 def _open_lines(url, headers):

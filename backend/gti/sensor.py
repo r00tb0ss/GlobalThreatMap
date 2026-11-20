@@ -18,10 +18,14 @@ OBSERVATION_TYPE = "direct_observation"
 MAX_LINES = 5000          # per collection run; bounds CPU/RAM after long downtime
 FIRST_RUN_SINCE = "-15min"  # do not import an unbounded backlog on first start
 
-_SSH = re.compile(
-    r"(?:Failed (?:password|publickey|keyboard-interactive/pam)|Invalid user|authentication failure"
-    r"|Connection closed by invalid user|Disconnected from invalid user|maximum authentication attempts)"
-    r".*?(?:from|rhost=)\s*([0-9a-fA-F:.]+)")
+_SSH_KIND = re.compile(
+    r"Failed (?:password|publickey|keyboard-interactive/pam)|Invalid user|authentication failure"
+    r"|Connection closed by invalid user|Disconnected from invalid user|maximum authentication attempts")
+# The attacker chooses the user name, and sshd logs it verbatim: `Invalid user x from 8.8.8.8 y from <real> port 5`.
+# The real address is therefore the LAST "<address> port <n>" in the line (nothing attacker-controlled follows it),
+# never the first "from". PAM lines have no port; there the first rhost= comes before the user name.
+_SSH_PORT = re.compile(r"(?:^|\s)([0-9a-fA-F:.]+)\s+port\s+\d+")
+_SSH_RHOST = re.compile(r"\brhost=([0-9a-fA-F:.]+)")
 _UFW = re.compile(r"\[UFW BLOCK\].*?\bSRC=(\S+).*?\bPROTO=(\w+)(?:.*?\bDPT=(\d+))?")
 
 
@@ -34,9 +38,14 @@ def parse_line(ident, message):
     if not message:
         return None
     if ident in ("sshd", "sshd-session", "ssh"):
-        m = _SSH.search(message)
-        if m:
-            ip = norm_ip(m.group(1))
+        if _SSH_KIND.search(message):
+            found = _SSH_PORT.findall(message)
+            if found:
+                cand = found[-1]
+            else:
+                m = _SSH_RHOST.search(message)
+                cand = m.group(1) if m else None
+            ip = norm_ip(cand) if cand else None
             if ip:
                 return {"ip": ip, "category": "ssh_bruteforce", "port": 22, "proto": "tcp"}
         return None
