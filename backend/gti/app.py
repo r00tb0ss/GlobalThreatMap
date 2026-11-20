@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocke
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import __version__, auth, config, feeds as F, intel, scoring
 from .collector import Collector, gunzip_bounded
@@ -67,13 +67,13 @@ class SetupBody(BaseModel):
 
 
 class LoginBody(BaseModel):
-    username: str
-    password: str
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=256)
 
 
 class PasswordBody(BaseModel):
-    current: str
-    new: str
+    current: str = Field(max_length=256)
+    new: str = Field(max_length=256)
 
 
 class SourceBody(BaseModel):
@@ -81,6 +81,7 @@ class SourceBody(BaseModel):
     api_key: str | None = None
 
 
+WS_RECHECK_S = 5                # how often an open live-feed socket re-validates its session
 LOOKUP_TTL = 24 * 3600          # per-IP AbuseIPDB lookups are cached this long (free plan: 1,000 checks/day)
 
 
@@ -108,6 +109,7 @@ def create_app(cfg=None, fetcher=None, journal_reader=None, stream_opener=None, 
     collector = Collector(db, geo, cfg, publish=bc.publish, **kwargs)
     stream = CheckpointStream(collector, opener=stream_opener)
     throttle = auth.Throttle()
+    ip_throttle = auth.Throttle(max_fails=30, lock=300)   # all usernames from one address together
     started = time.time()
     token_path = os.path.join(cfg.data_dir, "setup_token")
     cache = {"ver": -1, "t": 0, "agg": None}
@@ -229,17 +231,23 @@ def create_app(cfg=None, fetcher=None, journal_reader=None, stream_opener=None, 
 
     @app.post("/api/login")
     def login(body: LoginBody, request: Request, response: Response):
-        key = f"login:{request.client.host if request.client else '?'}:{body.username.lower()}"
-        if throttle.blocked(key):
+        host = request.client.host if request.client else "?"
+        name = body.username.strip()
+        # the key must use the same normalised name that is authenticated, or "admin", "admin " and " admin"
+        # would each get their own five attempts
+        key = f"login:{host}:{name.lower()}"
+        ipkey = f"loginip:{host}"
+        if throttle.blocked(key) or ip_throttle.blocked(ipkey):
             raise HTTPException(429, "Too many failed attempts. Try again in a few minutes.")
-        uid = auth.authenticate(db, body.username.strip(), body.password)
+        uid = auth.authenticate(db, name, body.password)
         if uid is None:
             throttle.fail(key)
+            ip_throttle.fail(ipkey)
             raise HTTPException(401, "Invalid username or password")
         throttle.ok(key)
         token, csrf = auth.create_session(db, uid)
         set_cookie(response, token)
-        return {"username": body.username.strip(), "csrf": csrf}
+        return {"username": name, "csrf": csrf}
 
     @app.post("/api/logout")
     def logout(request: Request, response: Response, s=Depends(current_csrf)):
@@ -253,8 +261,13 @@ def create_app(cfg=None, fetcher=None, journal_reader=None, stream_opener=None, 
 
     @app.post("/api/password")
     def change_password(body: PasswordBody, request: Request, s=Depends(current_csrf)):
+        pkey = f"password:{s['uid']}"
+        if throttle.blocked(pkey):
+            raise HTTPException(429, "Too many failed attempts. Try again in a few minutes.")
         if auth.authenticate(db, s["username"], body.current) is None:
+            throttle.fail(pkey)
             raise HTTPException(403, "Current password is incorrect")
+        throttle.ok(pkey)
         err = auth.check_password_policy(body.new, s["username"])
         if err:
             raise HTTPException(422, err)
@@ -747,7 +760,8 @@ def create_app(cfg=None, fetcher=None, journal_reader=None, stream_opener=None, 
         if origin and urlparse(origin).netloc != sock.headers.get("host"):
             await sock.close(code=4403)
             return
-        if not auth.get_session(db, sock.cookies.get(COOKIE)):
+        token = sock.cookies.get(COOKIE)
+        if not auth.get_session(db, token):
             await sock.close(code=4401)
             return
         if len(bc.clients) >= bc.max:
@@ -758,9 +772,16 @@ def create_app(cfg=None, fetcher=None, journal_reader=None, stream_opener=None, 
         bc.clients.add(q)
         try:
             await sock.send_json({"type": "hello"})
+            checked = time.monotonic()
             while True:
+                # a logout, password change or expiry must end the stream, not just block new connections
+                if time.monotonic() - checked >= WS_RECHECK_S:
+                    if not auth.get_session(db, token):
+                        await sock.close(code=4401)
+                        break
+                    checked = time.monotonic()
                 try:
-                    kind, ev = await asyncio.wait_for(q.get(), timeout=30)
+                    kind, ev = await asyncio.wait_for(q.get(), timeout=WS_RECHECK_S)
                     await sock.send_json({"type": kind, kind: ev})
                 except asyncio.TimeoutError:
                     await sock.send_json({"type": "ping", "ts": now()})

@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import sqlite3
 import sys
 import tarfile
@@ -111,7 +112,7 @@ def cmd_verify_backup(args):
         for name in manifest.get("files", {}):
             out = os.path.join(tmp, name)
             with tar.extractfile(name) as src, open(out, "wb") as dst:
-                dst.write(src.read())
+                shutil.copyfileobj(src, dst, 1 << 20)
             if _sha256(out) != manifest["files"][name]:
                 sys.exit(f"checksum mismatch for {name}")
         db = os.path.join(tmp, "gti.db")

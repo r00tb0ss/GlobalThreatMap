@@ -49,10 +49,16 @@ def check_password_policy(password: str, username: str = ""):
 
 
 class Throttle:
-    """5 failures within the window lock the key (ip+username) for LOCK seconds. In-memory."""
-    MAX, LOCK = 5, 300
+    """`max_fails` failures lock a key for `lock` seconds. In-memory.
 
-    def __init__(self):
+    The table is bounded: when it is full, expired and unlocked entries go first and then the oldest ones, but
+    an active lockout is never evicted to make room (flooding it with random keys must not clear a lockout).
+    """
+    MAX, LOCK, CAPACITY = 5, 300, 10000
+
+    def __init__(self, max_fails=None, lock=None):
+        self.max = max_fails or self.MAX
+        self.lock_s = lock or self.LOCK
         self._d = {}
         self._lock = threading.Lock()
 
@@ -63,14 +69,22 @@ class Throttle:
 
     def fail(self, key):
         with self._lock:
+            t = time.time()
             n, until = self._d.get(key, (0, 0))
-            if until and until <= time.time():
+            if until and until <= t:
                 n = 0
             n += 1
-            until = time.time() + self.LOCK if n >= self.MAX else 0
+            until = t + self.lock_s if n >= self.max else 0
+            self._d.pop(key, None)       # re-insert so dict order tracks recency
             self._d[key] = (n, until)
-            if len(self._d) > 10000:   # bound memory
-                self._d.clear()
+            if len(self._d) > self.CAPACITY:
+                self._evict(t)
+
+    def _evict(self, t):
+        for k in [k for k, (_, u) in self._d.items() if u <= t][: len(self._d) - self.CAPACITY]:
+            del self._d[k]               # unlocked entries, oldest first
+        while len(self._d) > self.CAPACITY:   # all remaining are locked: drop the oldest lockout
+            del self._d[next(iter(self._d))]
 
     def ok(self, key):
         with self._lock:
